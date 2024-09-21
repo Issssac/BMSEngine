@@ -1,0 +1,130 @@
+/****************************************************************************************** 
+ *	Chili DirectX Framework Version 16.07.20											  *	
+ *	Game.cpp																			  *
+ *	Copyright 2016 PlanetChili.net <http://www.planetchili.net>							  *
+ *																						  *
+ *	This file is part of The Chili DirectX Framework.									  *
+ *																						  *
+ *	The Chili DirectX Framework is free software: you can redistribute it and/or modify	  *
+ *	it under the terms of the GNU General Public License as published by				  *
+ *	the Free Software Foundation, either version 3 of the License, or					  *
+ *	(at your option) any later version.													  *
+ *																						  *
+ *	The Chili DirectX Framework is distributed in the hope that it will be useful,		  *
+ *	but WITHOUT ANY WARRANTY; without even the implied warranty of						  *
+ *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the						  *
+ *	GNU General Public License for more details.										  *
+ *																						  *
+ *	You should have received a copy of the GNU General Public License					  *
+ *	along with The Chili DirectX Framework.  If not, see <http://www.gnu.org/licenses/>.  *
+ ******************************************************************************************/
+#include "MainWindow.h"
+#include "Game.h"
+#include <time.h>
+#include <iostream>
+#include "camera.h"
+#include "controllers.h"
+
+pinBus CELLBUS, EXBUS, ESC, VSensor[4], TSensor[4];
+MCU* BMS_MCU = new MCU(&CELLBUS, &EXBUS, &ESC);
+cellUnit* cellUnits[4];
+float VData[4][3000] = { 0 }, TData[4][3000] = { 0 };
+float initV = 4000;
+float initT = 27;
+camera*view;
+long tick = 0;
+
+Game::Game(MainWindow& wnd)
+	:
+	wnd(wnd),
+	gfx(wnd),
+	sceneroot(0, 0, 0),
+	currView(new camera(gfx, sceneroot))
+{
+	view = new camera(gfx, vec(1, 0, 0));
+	CELLBUS.pinState = 0;
+	EXBUS.pinState = 0;
+	ESC.pinState = 0;
+	for (int c = 0; c < 4; c++) {
+		cellUnits[c] = new cellUnit(&CELLBUS, &ESC, &(VSensor[c]), &(TSensor[c]), 4 + c);
+		VData[c][0] = initV;
+		TData[c][0] = initT;
+		VSensor[c].pinState = *reinterpret_cast<int*>(&initV);
+		TSensor[c].pinState = *reinterpret_cast<int*>(&initT);
+	}
+
+
+}
+
+
+void Game::Go()
+{
+	
+	gfx.BeginFrame();	
+	srand(time(NULL));
+	UpdateModel();
+	ComposeFrame();
+	gfx.EndFrame();
+
+}
+
+void Game::UpdateModel(){ 
+	if (wnd.kbd.KeyIsPressed('E')) {
+		ESC.pinState = 0;
+	}
+	if (wnd.kbd.KeyIsPressed('S')) {
+		ESC.pinState = 0b1111;
+	}
+	if (wnd.kbd.KeyIsPressed('C') && !(BMS_MCU->LV_power) ){
+		BMS_MCU->powerOn();
+	}
+
+}
+
+void Game::ComposeFrame()
+{
+	tick++;
+	for (int i = 0; i < 4; i++) {
+		VData[i][tick % 3000] = VSensor[i].data();
+		TData[i][tick % 3000] = TSensor[i].data();
+		VData[i][(tick + 1) % 3000] = 0;
+		TData[i][(tick + 1) % 3000] = 0;
+	}
+	Color cellCol[4] = { Colors::Yellow,Colors::Red,Colors::LightGray,Colors::Blue };
+	view->putStr("TIME " + to_string(tick), 250, 20, 0.5);
+	//Voltage Graph Const
+	view->CdrawLine(50, 50, 50, 300, Colors::White);
+	view->CdrawLine(500, 300, 50, 300, Colors::White);
+	view->putChar('V', 10, 150);
+	for (int i = 0; i < 4; i++) {
+		view->putStr(to_string(int(VData[i][tick%3000])), 200 + i * 50, 320, 0.2,cellCol[i]);
+		view->graphArray(VData[i], 3000, 50, 300, 500, 50, 0, 5000, cellCol[i]);
+	}
+		
+
+	//Temp Graph Const
+	view->CdrawLine(50, 50+350, 50, 300 + 350, Colors::White);
+	view->CdrawLine(500, 300 + 350, 50, 300 + 350, Colors::White);
+	view->putChar('T', 10, 500);
+
+	for (int i = 0; i < 4; i++) {
+		view->putStr(to_string(int(TData[i][tick%3000])), 250 + i * 30, 690 , 0.2, cellCol[i]);
+		//view->graphArray(TData[i], 3000, 50, 650, 500, 400, 0, 80, cellCol[i]);
+	}
+	
+	//ESC Light
+	view->putStr("ESC", 680, 20,1, ESC.pinState ? Colors::Green : Colors::Red);
+
+	//HV Light
+	view->putStr("HV", 680, 60,1, BMS_MCU->HV_power? Colors::Green : Colors::Red);
+
+	//LV Light
+	view->putStr("LV", 680, 100, 1, BMS_MCU->LV_power ? Colors::Green : Colors::Red);
+	//Cell Lights
+	view->putStr("CELLS", 680, 150,0.8,Colors::Gray);
+	for (int i=0;i<4;i++)
+		view->putChar('1'+i, 700+40*i, 190, !cellUnits[i]->LV_power ? Colors::Red : cellUnits[i]->criticalCond?Colors::Yellow:Colors::Green);
+	
+	//BMS LED
+	view->putStr("BMS FLT", 680, 240, 1, BMS_MCU->LEDActive ? Colors::Red : Colors::Black);
+}

@@ -1,0 +1,85 @@
+/****************************************************************************************** 
+ *	Chili DirectX Framework Version 16.07.20											  *	
+ *	Game.cpp																			  *
+ *	Copyright 2016 PlanetChili.net <http://www.planetchili.net>							  *
+ *																						  *
+ *	This file is part of The Chili DirectX Framework.									  *
+ *																						  *
+ *	The Chili DirectX Framework is free software: you can redistribute it and/or modify	  *
+ *	it under the terms of the GNU General Public License as published by				  *
+ *	the Free Software Foundation, either version 3 of the License, or					  *
+ *	(at your option) any later version.													  *
+ *																						  *
+ *	The Chili DirectX Framework is distributed in the hope that it will be useful,		  *
+ *	but WITHOUT ANY WARRANTY; without even the implied warranty of						  *
+ *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the						  *
+ *	GNU General Public License for more details.										  *
+ *																						  *
+ *	You should have received a copy of the GNU General Public License					  *
+ *	along with The Chili DirectX Framework.  If not, see <http://www.gnu.org/licenses/>.  *
+ ******************************************************************************************/
+#include "MainWindow.h"
+#include "Game.h"
+#include <time.h>
+#include <iostream>
+#include "camera.h"
+#include "controllers.h"
+
+pinBus CELLBUS, EXBUS, ESC, VSensor[4], TSensor[4];
+MCU* BMS_MCU = new MCU(&CELLBUS, &EXBUS, &ESC);
+cellUnit* cellUnits[4];
+float VData[3000] = { 0 }, TData[3000] = { 0 };
+camera*view;
+
+Game::Game(MainWindow& wnd)
+	:
+	wnd(wnd),
+	gfx(wnd),
+	sceneroot(0, 0, 0),
+	currView(new camera(gfx, sceneroot))
+{
+	view = new camera(gfx, vec(1, 0, 0));
+	CELLBUS.pinState = 0;
+	EXBUS.pinState = 0;
+	ESC.pinState = 0;
+	for (int c = 0; c < 4; c++) cellUnits[c] = new cellUnit(&CELLBUS, &ESC, &(VSensor[c]), &(TSensor[c]), 4 + c);
+}
+
+
+void Game::Go()
+{
+	
+	gfx.BeginFrame();	
+	srand(time(NULL));
+	UpdateModel();
+	ComposeFrame();
+	gfx.EndFrame();
+
+}
+
+void Game::UpdateModel(){ 
+	if (wnd.kbd.KeyIsPressed('E')) {
+		ESC.pinState = 0;
+	}
+
+}
+
+void Game::ComposeFrame()
+{
+	//Voltage Graph Const
+	view->CdrawLine(50, 50, 50, 300, Colors::White);
+	view->CdrawLine(500, 300, 50, 300, Colors::White);
+	view->putChar('V', 10, 150);
+
+	//Temp Graph Const
+	view->CdrawLine(50, 50+350, 50, 300 + 350, Colors::White);
+	view->CdrawLine(500, 300 + 350, 50, 300 + 350, Colors::White);
+	view->putChar('X', 10, 500);
+	
+	//ESC Light
+	view->putStr("ESC", 700, 20, ESC.pinState ? Colors::Green : Colors::Red);
+
+	//HV Light
+	view->putStr("HV", 700, 60, ESC.pinState ? Colors::Green : Colors::Red);
+	view->putStr("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 700, 60, ESC.pinState ? Colors::Green : Colors::Red);
+}

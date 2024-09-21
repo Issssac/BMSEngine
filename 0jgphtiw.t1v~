@@ -1,0 +1,184 @@
+#pragma once
+#include "plane.h"
+#include "Graphics.h"
+#include "geometry.h"
+#include <vector>
+#include <thread>
+
+
+
+
+struct orderPtr {
+	double a[2]{0};
+	double b[2]{0};
+	double c[2]{0};
+	Color color;
+};
+
+struct order {
+	double dist;
+	orderPtr* ord;
+	friend bool operator<(order o1, order o2) {
+		return o1.dist > o2.dist;
+	}
+};
+
+class camera {
+private:
+	vec N;
+	vec pos;
+	Graphics* gfx;
+	plane viewplane;
+	int medianScreenW = Graphics::ScreenWidth / 2;
+	int medianScreenH = Graphics::ScreenHeight / 2;
+	vector<order>orders;
+	int charGfx[26][20] = {
+		{0},//A
+		{0},//B
+		{0},//C
+		{0},//D
+		{ 0,  0,  0, 30,
+		  0,  0, 20,  0,
+		  0, 15, 20, 15,
+		  0, 30, 20, 30,
+		  0,  0,  0,  0},//E
+		{0},//F
+		{0},//G
+		{0},//H
+		{0},//I
+		{0},//J
+		{0},//K
+		{0},//L
+		{0},//M
+		{0},//N
+		{0},//O
+		{0},//P
+		{0},//Q
+		{0},//R
+		{ 0,  0, 20,  0,
+		  0,  0,  0, 15,
+		  0, 15, 20, 15,
+		 20, 15, 20, 30,
+		  0, 30, 20, 30},//S
+
+		{ 0,  0, 20,  0,
+		 10,  0, 10, 30,
+		  0,  0,  0,  0,
+		  0,  0,  0,  0,
+		  0,  0,  0,  0},//T
+		{0},//U
+		{ 0,  0, 10, 30, 
+		 20,  0, 10, 30,
+		  0,  0,  0,  0,  
+		  0,  0,  0,  0,
+		  0,  0,  0,  0},//V
+		{0},//W
+		{0},//X
+		{0},//Y
+		{0} //Z
+	};
+
+public:
+	bool WF = FALSE;
+	camera(Graphics& g, vec& p) :
+		gfx(&g), 
+		pos(p),
+		N(1, 0, 0), 
+		viewplane(vec(1,0,0), vec(0, 0, 1.0 / Graphics::ScreenWidth), vec(0, 1.0 / Graphics::ScreenHeight, 0))
+	{
+	}
+	void setPos(double newpos[]) { vec p(newpos); pos = p; viewplane.setPos(pos + N); }
+	void translate(double x, double y, double z) { vec v(x, y, z); pos += v; viewplane.translate(v); }
+	void translate(const vec& v) { pos += v; viewplane.translate(v); }
+	void focal(double x) {N *= x; viewplane.setPos(N + pos);}
+	void face(const vec&v) { N = N.magnitude() * v / v.magnitude(); viewplane.setPos(N + pos); viewplane.face(N);}
+	vec getNormal(){ return N; }
+	void genOrder(triangle& t,geometry& g) {
+		vec parr[3];
+		for (int i = 0; i < 3; i++) {
+			parr[i] = (t.verts[i]->getPos() + g.root);
+			if ((parr[i] - pos) * (t.normal) > 0)return;
+			try {
+				parr[i] = viewplane.poi(parr[i], pos);
+			}
+			catch (bool) {
+				return;
+			}
+		}
+		order o;
+		o.ord = new orderPtr;
+		o.dist = (parr[0][2] + parr[1][2] + parr[2][2]) / 3;
+		o.ord->a[0] = medianScreenW * (1 + parr[0][0]);
+		o.ord->a[1] = medianScreenH * (1 - parr[0][1]);
+		o.ord->b[0] = medianScreenW * (1 + parr[1][0]);
+		o.ord->b[1] = medianScreenH * (1 - parr[1][1]);
+		o.ord->c[0] = medianScreenW * (1 + parr[2][0]);
+		o.ord->c[1] = medianScreenH * (1 - parr[2][1]);
+		o.ord->color = t.c;
+		orders.push_back(o);
+		return;
+	}
+
+	void drawGeo(geometry** g, int numG) {
+		for (int GI = 0; GI < numG; GI++) {
+			vector <thread> threads;
+			for (int TI = 0; TI < g[GI]->faces.size(); TI++) {
+				threads.push_back(thread(&camera::genOrder, this, g[GI]->faces[TI], *(g[GI])));
+			}
+			for (int i = 0; i < threads.size(); i++)
+				threads[i].join();
+		}
+
+		sort(orders.begin(), orders.end());
+		for (int i = 0; i < orders.size(); i++) {
+			drawOrder(*(orders[i].ord) );
+			delete orders[i].ord;
+		}
+		orders.clear();
+	}
+	void CdrawLine(double x1, double y1, double x2, double y2, Color c) {
+		double m[2] = { x2 - x1,y2 - y1 };
+		double mag = sqrt(m[0] * m[0] + m[1] * m[1]);
+		if (mag == 0)
+			return;
+		//mag /= 1.2;
+		m[0] /= mag;
+		m[1] /= mag;
+		mag += 1;
+		for (int i = 0; i < mag; i++) {
+			gfx->PutPixel(x1, y1, c);
+			x1 += m[0];
+			y1 += m[1];
+		}
+
+	}
+	void drawOrder(orderPtr& o) {
+		if (WF) {
+			CdrawLine(o.a[0], o.a[1], o.b[0], o.b[1], o.color);
+			CdrawLine(o.c[0], o.c[1], o.b[0], o.b[1], o.color);
+			CdrawLine(o.a[0], o.a[1], o.c[0], o.c[1], o.color);
+			return;
+		}
+		double m[4] = { o.c[0] - o.a[0],o.c[1] - o.a[1] , o.c[0] - o.b[0], o.c[1] - o.b[1] };
+
+		double mag1 = sqrt(m[0] * m[0] + m[1] * m[1]);
+		double mag2 = sqrt(m[2] * m[2] + m[3] * m[3]);
+		double mag = mag1 + mag2;
+		mag /= 2;
+		for (int i = 0; i < 4; i++)
+			m[i] /= mag;
+		double curr[4] = { o.a[0], o.a[1] , o.b[0], o.b[1] };
+		for (int i = 0; i < mag; i++) {
+			CdrawLine(curr[0], curr[1], curr[2], curr[3], o.color);
+			for (int j = 0; j < 4; j++)curr[j] += m[j];
+
+		}
+		return;
+	}
+	void putChar(char c, int x, int y, Color col=Colors::White) {
+		int C = int(c) - int('A');
+		for (int i = 0; i < 20; i += 4) {
+			CdrawLine(charGfx[C][i]+x, charGfx[C][i + 1]+y, charGfx[C][i + 2]+x, charGfx[C][i + 3]+y, col);
+		}
+	}
+};
